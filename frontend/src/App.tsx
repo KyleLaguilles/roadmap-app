@@ -1,4 +1,6 @@
-import { FormEvent, useState } from 'react'
+import { type FormEvent, useState } from 'react'
+import IntroAnimation from './IntroAnimation'
+import FireflyBackground from './FireflyBackground'
 
 type GradeLevel = 'high school' | 'freshman' | 'sophomore' | 'junior' | 'senior'
 type MathComfort = 'low' | 'medium' | 'high'
@@ -12,6 +14,7 @@ interface AnalyzeResponse {
 }
 
 function App() {
+  const [showIntro, setShowIntro] = useState(true)
   const [step, setStep] = useState<'form' | 'results'>('form')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -69,20 +72,23 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 flex items-center justify-center px-4">
-      <div className="w-full max-w-5xl rounded-3xl border border-slate-800 bg-slate-900/60 backdrop-blur shadow-2xl p-8 md:p-10 space-y-8">
-        <header className="space-y-2">
-          <p className="text-sm font-medium text-indigo-400 tracking-wide uppercase">
-            AI Career Coach
-          </p>
-          <h1 className="text-3xl md:text-4xl font-semibold tracking-tight">
-            Design your CS journey with an agentic coach
-          </h1>
-          <p className="text-slate-300 max-w-2xl">
-            Tell the coach where you are today. It will research the job market, pick
-            focus areas, and outline a weekly roadmap tailored to you.
-          </p>
-        </header>
+    <>
+      {showIntro && <IntroAnimation onComplete={() => setShowIntro(false)} />}
+      <div className="min-h-screen bg-[#0c0c0e] text-slate-50 flex items-center justify-center px-4 relative">
+        <FireflyBackground />
+        <div className="relative z-10 w-full max-w-5xl rounded-3xl border-2 border-dashed border-amber-400/50 bg-slate-900/40 backdrop-blur shadow-[0_0_40px_rgba(251,191,36,0.08)] p-8 md:p-10 space-y-8">
+          <header className="space-y-2 text-center md:text-left">
+            <p className="text-sm font-medium text-amber-400 tracking-wide uppercase drop-shadow-[0_0_12px_rgba(251,191,36,0.4)]">
+              AI Career Coach
+            </p>
+            <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-amber-400/95 drop-shadow-[0_0_20px_rgba(251,191,36,0.35)]">
+              Design your CS journey with an agentic coach
+            </h1>
+            <p className="text-slate-400 max-w-2xl">
+              Tell the coach where you are today. It will research the job market, pick
+              focus areas, and outline a weekly roadmap tailored to you.
+            </p>
+          </header>
 
         {step === 'form' && (
           <form
@@ -96,7 +102,7 @@ function App() {
                     Name
                   </label>
                   <input
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="Alex"
@@ -109,7 +115,7 @@ function App() {
                     Grade level
                   </label>
                   <select
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                     value={gradeLevel}
                     onChange={(e) => setGradeLevel(e.target.value as GradeLevel)}
                   >
@@ -128,7 +134,7 @@ function App() {
                     Math comfort
                   </label>
                   <select
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                     value={mathComfort}
                     onChange={(e) => setMathComfort(e.target.value as MathComfort)}
                   >
@@ -143,7 +149,7 @@ function App() {
                     Coding exposure
                   </label>
                   <select
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                     value={codingExposure}
                     onChange={(e) => setCodingExposure(e.target.value as CodingExposure)}
                   >
@@ -158,7 +164,7 @@ function App() {
                     Career goal
                   </label>
                   <input
-                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    className="w-full rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                     value={careerGoal}
                     onChange={(e) => setCareerGoal(e.target.value)}
                     placeholder="e.g. ML engineer, web dev"
@@ -173,7 +179,7 @@ function App() {
                 Interests
               </label>
               <textarea
-                className="w-full min-h-[120px] rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full min-h-[120px] rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                 value={interests}
                 onChange={(e) => setInterests(e.target.value)}
                 placeholder="What kinds of problems or projects excite you?"
@@ -191,7 +197,7 @@ function App() {
                 </span>
               </div>
               <textarea
-                className="w-full min-h-[120px] rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                className="w-full min-h-[120px] rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
                 placeholder="Paste any transcript, resume bullets, or project notes here..."
@@ -208,11 +214,11 @@ function App() {
               <button
                 type="submit"
                 disabled={loading}
-                className="inline-flex items-center gap-2 rounded-xl bg-indigo-500 px-5 py-2.5 text-sm font-medium shadow-lg shadow-indigo-500/30 hover:bg-indigo-400 disabled:opacity-60 disabled:cursor-not-allowed"
+                className="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-5 py-2.5 text-sm font-medium text-[#0c0c0e] shadow-[0_0_20px_rgba(251,191,36,0.35)] hover:bg-amber-300 disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 {loading ? (
                   <>
-                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-indigo-200 border-t-transparent" />
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-200 border-t-transparent" />
                     <span>Your agent is researching the job market...</span>
                   </>
                 ) : (
@@ -271,9 +277,9 @@ function App() {
               <ol className="relative border-l border-slate-800 pl-4 space-y-4">
                 {result.roadmap.map((item, index) => (
                   <li key={index} className="ml-2">
-                    <div className="absolute -left-[9px] mt-1 h-3 w-3 rounded-full bg-indigo-500" />
+                    <div className="absolute -left-[9px] mt-1 h-3 w-3 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
                     <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-4 py-3">
-                      <p className="text-xs font-medium text-indigo-300 mb-1">
+                      <p className="text-xs font-medium text-amber-400/90 mb-1">
                         Week {index + 1}
                       </p>
                       <p className="text-sm text-slate-100 whitespace-pre-line">
@@ -300,7 +306,7 @@ function App() {
                       key={elective}
                       className="flex items-start gap-2 rounded-xl bg-slate-900/70 border border-slate-800 px-3 py-2"
                     >
-                      <span className="mt-[5px] h-1.5 w-1.5 rounded-full bg-indigo-400" />
+                      <span className="mt-[5px] h-1.5 w-1.5 rounded-full bg-amber-400" />
                       <span className="text-sm text-slate-100">{elective}</span>
                     </li>
                   ))}
@@ -339,6 +345,7 @@ function App() {
         )}
       </div>
     </div>
+    </>
   )
 }
 

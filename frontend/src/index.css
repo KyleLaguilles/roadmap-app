@@ -1,3 +1,39 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import "tailwindcss";
+
+@keyframes glow-bulb {
+  0% {
+    opacity: 0.5;
+    filter: drop-shadow(0 0 4px rgba(251, 191, 36, 0.3));
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 16px rgba(251, 191, 36, 0.7)) drop-shadow(0 0 32px rgba(251, 191, 36, 0.4));
+  }
+  100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 20px rgba(251, 191, 36, 0.6)) drop-shadow(0 0 40px rgba(251, 191, 36, 0.3));
+  }
+}
+
+.animate-glow-bulb {
+  animation: glow-bulb 0.9s ease-out forwards;
+}
+
+@keyframes firefly-twinkle {
+  0%, 100% {
+    opacity: 0.22;
+    transform: translate(0, 0);
+  }
+  25% {
+    opacity: 0.9;
+    transform: translate(3px, -4px);
+  }
+  50% {
+    opacity: 0.3;
+    transform: translate(-2px, 2px);
+  }
+  75% {
+    opacity: 0.75;
+    transform: translate(-3px, -2px);
+  }
+}
