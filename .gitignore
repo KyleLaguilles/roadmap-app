@@ -1,0 +1,21 @@
+# Environment and secrets (never commit)
+.env
+.env.local
+.env.*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+
+# OS and editors
+.DS_Store
+.idea
+.vscode/
+
+# Optional: uncomment if you build or run from repo root
+# frontend/node_modules/
+# frontend/dist/
