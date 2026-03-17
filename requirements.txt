@@ -5,4 +5,5 @@ python-dotenv
 httpx
 pydantic
 python-multipart
+pdfplumber
 

@@ -1,0 +1,58 @@
+COMP 110|Introduction to Algorithms and Programming and Lab|MATH 102, MATH 103, MATH 104, MATH 105, MATH 150A or MATH 255A
+COMP 111A|Introduction to Algorithms and Programming A and Lab|Multiple Measures Placement in GE-level Mathematics or MATH 093/196QR/196S
+COMP 111B|Introduction to Algorithms and Programming B and Lab|COMP 111A/L; MATH 102, MATH 103, MATH 104, MATH 105, MATH 150A or MATH 255A
+COMP 122|Computer Architecture and Assembly Language and Lab|COMP 110/L or COMP 111B/L; MATH 103, MATH 104, MATH 105, MATH 150A or MATH 255A
+COMP 182|Data Structures and Program Design and Lab|COMP 110/L or COMP 111B/L; MATH 103, MATH 104, MATH 105, MATH 150A or MATH 255A
+COMP 222|Computer Organization|COMP 122/L and COMP 182/L
+COMP 256|Discrete Structures for Computer Science and Lab|COMP 182/L, MATH 150A, and PHIL 230
+COMP 282|Advanced Data Structures|COMP 182/L and MATH 150A
+COMP 310|Automata, Languages and Computation|COMP 256/L or MATH 326
+COMP 322|Introduction to Operating Systems and System Architecture and Lab|COMP 222 or CIT 210/L or ECE 422 and ECE 425/L
+COMP 324|Computer Networking and Security|COMP 282
+COMP 333|Concepts of Programming Languages|COMP 282
+COMP 380|Introduction to Software Engineering and Lab|CIT 270/L or COMP 282; PHIL 230 or ECE 320/L; GE Basic Skills A1
+COMP 410|Logic Programming|COMP 380/L
+COMP 424|Computer System Security|COMP 324 or IS 435
+COMP 429|Computer Network Software|COMP 324
+COMP 430|Language Design and Compilers|COMP 310 and COMP 380/L
+COMP 440|Database Design|COMP 380/L
+COMP 442|Machine Learning Principles|COMP 182/L and MATH 444; or COMP 380/L and MATH 340
+COMP 465|Computer Graphic Systems and Design and Lab|MATH 262
+COMP 467|Multimedia Systems Design|COMP 380/L
+COMP 482|Algorithm Design and Analysis|COMP 282; COMP 256/L or MATH 320 or MATH 326
+COMP 484|Web Engineering I and Lab|COMP 322/L or COMP 380/L or CIT 360
+COMP 485|Human-Computer Interaction|COMP 380/L or CIT 360
+COMP 490|Senior Design Project I and Lab|COMP 380/L
+COMP 491|Senior Design Project II and Lab|COMP 490/L
+COMP 492|Projects in Data Science|COMP 442 and MATH 445
+COMP 502|Programming for Data Science and Analytics|Admission to M.S. Data Science or M.S. Engineering Management or instructor consent
+COMP 521|Advanced Operating Systems and Lab|COMP 322/L
+COMP 522|Embedded Applications|COMP 322/L
+COMP 528|Mobile Computing|COMP 322/L or COMP 380/L
+COMP 529|Advanced Network Topics and Lab|COMP 429; MATH 340
+COMP 535|Parallel and Distributed Computing and Lab|COMP 282 and COMP 322/L
+COMP 539|Network Infrastructure|COMP 424 or COMP 429
+COMP 541|Data Mining|COMP 380/L or equivalent; MATH 340 or MATH 341 or equivalent
+COMP 542|Machine Learning|COMP 380/L or equivalent; MATH 262 or equivalent; MATH 340 or MATH 341 or equivalent
+COMP 545|Cloud Computing|COMP 322/L
+COMP 560|Expert Systems|COMP 569
+COMP 565|Advanced Computer Graphics|COMP 322/L
+COMP 569|Artificial Intelligence|COMP 380/L or equivalent; MATH 262 or equivalent; MATH 340 or MATH 341 or equivalent
+COMP 582|Software Requirements Analysis and Specification|COMP 380/L
+COMP 583|Software Engineering Management|COMP 380/L
+COMP 584|Advanced Web Engineering|COMP 380/L
+COMP 585|Graphical User Interfaces|COMP 322/L, COMP 380/L
+COMP 586|Object-Oriented Software Development|COMP 322/L, COMP 380/L
+COMP 587|Software Verification and Validation|COMP 380/L
+COMP 589|Software Metrics|COMP 380/L; MATH 340
+COMP 610|Data Structures and Algorithms|COMP 310; MATH 482
+COMP 620|Computer System Architecture|COMP 322/L, COMP 380/L
+COMP 630|Formal Semantics of Programming Languages|COMP 310, COMP 380/L
+COMP 639|Probability and Statistics for Data Science|MATH 340 or MATH 341 with C or better; COMP 502
+COMP 640|Database System Design|COMP 282; COMP 502
+COMP 641|Fundamentals of Data Science|MATH 262 or equivalent; COMP 639 or MATH 340 or MATH 341; COMP 282 or equivalent; COMP 502
+COMP 642|Advanced Databases and Data Visualization|COMP 440 or COMP 640; COMP 502
+COMP 643|Deep Learning|COMP 442 or COMP 641 or COMP 542; COMP 502
+COMP 644|Big Data|COMP 442 or COMP 542; COMP 440 or COMP 640; COMP 502
+COMP 680|Advanced Topics in Software Engineering|COMP 322/L, COMP 380/L
+COMP 684|Software Architecture and Design|COMP 380/L, COMP 582

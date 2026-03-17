@@ -1,15 +1,22 @@
 import { type FormEvent, useState } from 'react'
 import IntroAnimation from './IntroAnimation'
 import FireflyBackground from './FireflyBackground'
+import PdfUploadZone from './PdfUploadZone'
 
 type GradeLevel = 'high school' | 'freshman' | 'sophomore' | 'junior' | 'senior'
 type MathComfort = 'low' | 'medium' | 'high'
 type CodingExposure = 'none' | 'some' | 'experienced'
 
+interface ElectiveCourse {
+  number: string
+  name: string
+  prereq?: string | null
+}
+
 interface AnalyzeResponse {
   fields: string[]
   roadmap: string[]
-  electives: string[]
+  electives: ElectiveCourse[]
   resources: { skill: string; items: string[] }[]
 }
 
@@ -27,6 +34,10 @@ function App() {
   const [codingExposure, setCodingExposure] = useState<CodingExposure>('some')
   const [careerGoal, setCareerGoal] = useState('')
   const [transcript, setTranscript] = useState('')
+  const [resumeFile, setResumeFile] = useState<string | null>(null)
+  const [resumeText, setResumeText] = useState<string | null>(null)
+  const [degreeProgressFile, setDegreeProgressFile] = useState<string | null>(null)
+  const [degreeProgressText, setDegreeProgressText] = useState<string | null>(null)
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
@@ -47,6 +58,8 @@ function App() {
           coding_exposure: codingExposure,
           career_goal: careerGoal,
           transcript: transcript || null,
+          resume_text: resumeText || null,
+          degree_progress_text: degreeProgressText || null,
         }),
       })
 
@@ -187,17 +200,55 @@ function App() {
               />
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 md:col-span-2">
+              <PdfUploadZone
+                variant="resume"
+                label="Upload Resume or Transcript (optional)"
+                description="General background context — skills, experience, courses taken elsewhere."
+                fileName={resumeFile}
+                extractedText={resumeText}
+                onFileAccepted={(file, text) => {
+                  setResumeFile(file.name)
+                  setResumeText(text)
+                }}
+                onRemove={() => {
+                  setResumeFile(null)
+                  setResumeText(null)
+                }}
+                disabled={loading}
+              />
+            </div>
+
+            <div className="space-y-4 md:col-span-2">
+              <PdfUploadZone
+                variant="degree"
+                label="Upload Degree Progress Report (optional)"
+                description="CSUN degree audit showing classes completed and in progress."
+                fileName={degreeProgressFile}
+                extractedText={degreeProgressText}
+                onFileAccepted={(file, text) => {
+                  setDegreeProgressFile(file.name)
+                  setDegreeProgressText(text)
+                }}
+                onRemove={() => {
+                  setDegreeProgressFile(null)
+                  setDegreeProgressText(null)
+                }}
+                disabled={loading}
+              />
+            </div>
+
+            <div className="space-y-4 md:col-span-2">
               <div className="flex items-center justify-between gap-2">
                 <label className="block text-sm font-medium text-slate-200">
-                  Optional: paste transcript / resume
+                  Or paste transcript / resume (optional)
                 </label>
                 <span className="text-xs text-slate-400">
-                  Helps the agent calibrate level, but not required.
+                  Fallback if you don’t upload a PDF.
                 </span>
               </div>
               <textarea
-                className="w-full min-h-[120px] rounded-xl border border-dashed border-slate-700 bg-slate-900/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
+                className="w-full min-h-[80px] rounded-xl border border-slate-700 bg-slate-900/40 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60 focus:border-amber-400/50"
                 value={transcript}
                 onChange={(e) => setTranscript(e.target.value)}
                 placeholder="Paste any transcript, resume bullets, or project notes here..."
@@ -301,13 +352,25 @@ function App() {
                   online classes.
                 </p>
                 <ul className="space-y-2">
-                  {result.electives.map((elective) => (
+                  {result.electives.map((elective, idx) => (
                     <li
-                      key={elective}
+                      key={elective.number ? `${elective.number}-${idx}` : idx}
                       className="flex items-start gap-2 rounded-xl bg-slate-900/70 border border-slate-800 px-3 py-2"
                     >
-                      <span className="mt-[5px] h-1.5 w-1.5 rounded-full bg-amber-400" />
-                      <span className="text-sm text-slate-100">{elective}</span>
+                      <span className="mt-[5px] h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                      <div className="text-sm">
+                        {elective.number && (
+                          <span className="font-medium text-amber-400/90">{elective.number}</span>
+                        )}
+                        <span className="text-slate-100">
+                          {elective.number ? ` — ${elective.name}` : elective.name}
+                        </span>
+                        {elective.prereq && (
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Prereq: {elective.prereq}
+                          </p>
+                        )}
+                      </div>
                     </li>
                   ))}
                 </ul>
