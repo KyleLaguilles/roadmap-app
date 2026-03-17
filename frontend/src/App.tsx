@@ -3,6 +3,7 @@ import IntroAnimation from './IntroAnimation'
 import FireflyBackground from './FireflyBackground'
 import PdfUploadZone from './PdfUploadZone'
 import luminaryLogo from './assets/luminary_logo.png'
+import SlackNotification from './SlackNotification'
 
 type GradeLevel = 'high school' | 'freshman' | 'sophomore' | 'junior' | 'senior'
 type MathComfort = 'low' | 'medium' | 'high'
@@ -738,6 +739,14 @@ function App() {
                             ))}
                           </div>
                         </section>
+
+            {/* Slack Notification */}
+            <SlackNotification
+            name={name}
+            courses={result.electives.slice(0, 3).map(e => e.number ? `${e.number} — ${e.name}` : e.name)}
+            fields={result.fields.slice(0, 2)}
+
+            />
 
             {/* Chat */}
             <section className="space-y-3">
