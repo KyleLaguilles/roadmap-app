@@ -2,6 +2,7 @@ import { type FormEvent, useState } from 'react'
 import IntroAnimation from './IntroAnimation'
 import FireflyBackground from './FireflyBackground'
 import PdfUploadZone from './PdfUploadZone'
+import luminaryLogo from './assets/luminary_logo.png'
 
 type GradeLevel = 'high school' | 'freshman' | 'sophomore' | 'junior' | 'senior'
 type MathComfort = 'low' | 'medium' | 'high'
@@ -11,11 +12,19 @@ interface ElectiveCourse {
   number: string
   name: string
   prereq?: string | null
+  in_progress?: boolean | null
 }
 
 interface AnalyzeResponse {
   fields: string[]
-  roadmap: string[]
+  reasoning: string
+  job_market: {
+    field: string
+    median_salary: string
+    companies: string[]
+    locations: string[]
+    titles: string[]
+  }[]
   electives: ElectiveCourse[]
   resources: { skill: string; items: string[] }[]
 }
@@ -39,10 +48,75 @@ function App() {
   const [degreeProgressFile, setDegreeProgressFile] = useState<string | null>(null)
   const [degreeProgressText, setDegreeProgressText] = useState<string | null>(null)
 
+  const [chatInput, setChatInput] = useState('')
+  const [chatMessages, setChatMessages] = useState<{ role: 'user' | 'assistant'; text: string }[]>([])
+  const [chatLoading, setChatLoading] = useState(false)
+  const [chatError, setChatError] = useState<string | null>(null)
+
+  const [progressMessage, setProgressMessage] = useState<string>('Starting…')
+
+  const prepTrack = [
+    'Programming fundamentals: variables, loops, functions (Python or JavaScript)',
+    'Data structures basics: arrays/lists, stacks, queues, hash maps',
+    'Problem solving: 20–30 easy coding problems (focus on patterns)',
+    'Math for CS: algebra → precalc → intro discrete math (logic, sets)',
+    'Build 1 portfolio project: small web app or data project with a README',
+    'Git + GitHub: commits, branches, pull requests',
+  ]
+
+  async function handleAskLuminary() {
+    const question = chatInput.trim()
+    if (!question || !result) return
+
+    setChatError(null)
+    setChatLoading(true)
+    setChatMessages((prev) => [...prev, { role: 'user', text: question }])
+    setChatInput('')
+
+    try {
+      const response = await fetch('http://localhost:8000/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          question,
+          profile: {
+            name,
+            gradeLevel,
+            interests,
+            mathComfort,
+            codingExposure,
+            careerGoal,
+          },
+          plan: result,
+        }),
+      })
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => null)
+        throw new Error(data?.detail ?? 'Chat request failed')
+      }
+
+      const data: { answer: string } = await response.json()
+      setChatMessages((prev) => [...prev, { role: 'assistant', text: data.answer }])
+    } catch (err: any) {
+      setChatError(err.message ?? 'Failed to contact Luminary')
+    } finally {
+      setChatLoading(false)
+    }
+  }
+
   async function handleSubmit(e: FormEvent) {
     e.preventDefault()
     setLoading(true)
     setError(null)
+    setProgressMessage('Starting…')
+    setResult({
+      fields: [],
+      reasoning: '',
+      job_market: [],
+      electives: [],
+      resources: [],
+    })
 
     try {
       const response = await fetch('http://localhost:8000/analyze', {
@@ -68,9 +142,74 @@ function App() {
         throw new Error(data?.detail ?? 'Something went wrong')
       }
 
-      const data: AnalyzeResponse = await response.json()
-      setResult(data)
+      if (!response.body) {
+        throw new Error('Streaming is not supported in this browser')
+      }
+
+      // Show results immediately; sections will fill in as chunks arrive.
       setStep('results')
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        // SSE format: "data: <json>\n\n". Split on blank lines.
+        const parts = buffer.split('\n\n')
+        buffer = parts.pop() ?? ''
+
+        for (const part of parts) {
+          const line = part.trim()
+          if (!line) continue
+          const jsonText = line.startsWith('data:') ? line.slice(5).trim() : line
+          if (!jsonText) continue
+
+          let chunk: any
+          try {
+            chunk = JSON.parse(jsonText)
+          } catch {
+            continue
+          }
+
+          if (chunk.type === 'status') {
+            setProgressMessage(chunk.message ?? 'Working…')
+          } else if (chunk.type === 'job_market') {
+            setResult((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    job_market: [
+                      ...(prev.job_market ?? []),
+                      {
+                        field: chunk.field ?? '',
+                        median_salary: chunk.median_salary ?? 'Not listed',
+                        companies: chunk.companies ?? [],
+                        locations: chunk.locations ?? [],
+                        titles: chunk.titles ?? [],
+                      },
+                    ].filter((x) => x.field),
+                  }
+                : prev,
+            )
+          } else if (chunk.type === 'fields') {
+            setResult((prev) => (prev ? { ...prev, fields: chunk.fields ?? [] } : prev))
+          } else if (chunk.type === 'reasoning') {
+            setResult((prev) => (prev ? { ...prev, reasoning: chunk.reasoning ?? '' } : prev))
+          } else if (chunk.type === 'electives') {
+            setResult((prev) => (prev ? { ...prev, electives: chunk.electives ?? [] } : prev))
+          } else if (chunk.type === 'resources') {
+            setResult((prev) => (prev ? { ...prev, resources: chunk.resources ?? [] } : prev))
+          } else if (chunk.type === 'error') {
+            throw new Error(chunk.detail ?? 'Streaming error')
+          } else if (chunk.type === 'done') {
+            setProgressMessage('Done')
+          }
+        }
+      }
     } catch (err: any) {
       setError(err.message ?? 'Failed to contact coach')
     } finally {
@@ -82,18 +221,36 @@ function App() {
     setStep('form')
     setResult(null)
     setError(null)
+    setChatInput('')
+    setChatMessages([])
+    setChatError(null)
+    setChatLoading(false)
   }
 
   return (
     <>
+      <style>{`
+        @keyframes luminaryFadeIn {
+          from { opacity: 0; transform: translateY(6px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .luminary-fade-in { animation: luminaryFadeIn 420ms ease-out; }
+      `}</style>
       {showIntro && <IntroAnimation onComplete={() => setShowIntro(false)} />}
       <div className="min-h-screen bg-[#0c0c0e] text-slate-50 flex items-center justify-center px-4 relative">
         <FireflyBackground />
         <div className="relative z-10 w-full max-w-5xl rounded-3xl border-2 border-dashed border-amber-400/50 bg-slate-900/40 backdrop-blur shadow-[0_0_40px_rgba(251,191,36,0.08)] p-8 md:p-10 space-y-8">
           <header className="space-y-2 text-center md:text-left">
-            <p className="text-sm font-medium text-amber-400 tracking-wide uppercase drop-shadow-[0_0_12px_rgba(251,191,36,0.4)]">
-              Luminary AI — Academic Advisor
-            </p>
+            <div className="flex items-center justify-center md:justify-start gap-3">
+              <img
+                src={luminaryLogo}
+                alt="Luminary"
+                className="h-9 w-9 object-contain drop-shadow-[0_0_14px_rgba(251,191,36,0.55)]"
+              />
+              <p className="text-sm font-medium text-amber-400 tracking-wide uppercase drop-shadow-[0_0_12px_rgba(251,191,36,0.4)]">
+                Luminary AI — Academic Advisor
+              </p>
+            </div>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-amber-400/95 drop-shadow-[0_0_20px_rgba(251,191,36,0.35)]">
               Let us help light the way to graduation
             </h1>
@@ -269,7 +426,7 @@ function App() {
                 {loading ? (
                   <>
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-200 border-t-transparent" />
-                    <span>Luminary is mapping your path to graduation...</span>
+                    <span>{progressMessage || 'Luminary is mapping your path to graduation...'}</span>
                   </>
                 ) : (
                   <>Light the way 🎓</>
@@ -301,7 +458,7 @@ function App() {
             </div>
 
             {/* Summary Card */}
-            <section className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-6 py-5">
+            <section className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-6 py-5 luminary-fade-in">
               <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-2">
                 Where you stand
               </p>
@@ -312,44 +469,138 @@ function App() {
               </p>
             </section>
 
+            {/* Explainability */}
+            {result.reasoning && (
+              <section className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-6 py-5 luminary-fade-in">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-amber-400">✦</span>
+                <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest">
+                  Why Luminary chose this for you
+                </p>
+              </div>
+              <div className="rounded-xl border border-amber-400/15 bg-amber-400/10 px-4 py-3">
+                <p className="text-sm text-slate-200 leading-relaxed italic">
+                  {result.reasoning || 'Luminary tailored this plan based on your profile and goals.'}
+                </p>
+              </div>
+              </section>
+            )}
+
+            {/* Job market snapshot */}
+            {result.job_market.length > 0 && (
+              <section className="space-y-3 luminary-fade-in">
+                <p className="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-2">
+                  Job market snapshot
+                </p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  {result.job_market.map((jm) => (
+                    <article
+                      key={jm.field}
+                      className="rounded-2xl border border-slate-800 bg-slate-900/50 px-5 py-4"
+                    >
+                      <p className="text-sm font-semibold text-slate-100 mb-2">{jm.field}</p>
+                      <div className="space-y-1 text-sm">
+                        <p className="text-slate-300">
+                          Median salary:{' '}
+                          <span className="text-amber-300 font-medium">{jm.median_salary}</span>
+                        </p>
+                        {jm.companies.length > 0 && (
+                          <p className="text-slate-300">
+                            <span className="font-medium">Top companies hiring:</span>{' '}
+                            <span className="text-slate-200 break-words">{jm.companies.slice(0, 3).join(', ')}</span>
+                          </p>
+                        )}
+                        {jm.locations.length > 0 && (
+                          <p className="text-slate-300">
+                            <span className="font-medium">Common locations:</span>{' '}
+                            <span className="text-slate-200 break-words">{jm.locations.slice(0, 3).join(', ')}</span>
+                          </p>
+                        )}
+                      </div>
+
+                      {jm.titles.length > 0 && (
+                        <ul className="mt-3 space-y-2">
+                          {jm.titles.map((title, idx) => (
+                            <li key={`${jm.field}-${idx}-${title}`} className="text-sm text-slate-200 flex items-start gap-2">
+                              <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                              <span className="font-medium text-slate-100 break-words">{title}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* Recommended Courses */}
-            <section className="space-y-3">
+            <section className={`space-y-3 ${result.electives.length > 0 ? 'luminary-fade-in' : ''}`}>
               <div>
                 <h2 className="text-xl font-semibold tracking-tight">
-                  📚 Courses to take next
+                  {result.electives.length === 1 && gradeLevel !== 'high school'
+                    ? '⭐ Most recommended course'
+                    : '📚 Courses to take next'}
                 </h2>
                 <p className="text-slate-300 text-sm">
                   Use this list when picking university courses or high-quality
                   online classes.
                 </p>
-                <ul className="space-y-2">
-                  {result.electives.map((elective, idx) => (
-                    <li
-                      key={elective.number ? `${elective.number}-${idx}` : idx}
-                      className="flex items-start gap-2 rounded-xl bg-slate-900/70 border border-slate-800 px-3 py-2"
-                    >
-                      <span className="mt-[5px] h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
-                      <div className="text-sm">
-                        {elective.number && (
-                          <span className="font-medium text-amber-400/90">{elective.number}</span>
+                {result.electives.length > 0 ? (
+                  <ul className="space-y-2">
+                    {result.electives.map((elective, idx) => (
+                      <li
+                        key={elective.number ? `${elective.number}-${idx}` : idx}
+                        className="flex items-start gap-2 rounded-xl bg-slate-900/70 border border-slate-800 px-3 py-2"
+                      >
+                        <span className="mt-[5px] h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                        <div className="text-sm">
+                          {elective.number && (
+                            <span className="font-medium text-amber-400/90">{elective.number}</span>
+                          )}
+                          <span className="text-slate-100">
+                            {elective.number ? ` — ${elective.name}` : elective.name}
+                          </span>
+                        {elective.in_progress && (
+                          <span className="ml-2 inline-flex items-center rounded-full border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-300 align-middle">
+                            In progress
+                          </span>
                         )}
-                        <span className="text-slate-100">
-                          {elective.number ? ` — ${elective.name}` : elective.name}
-                        </span>
-                        {elective.prereq && (
-                          <p className="text-xs text-slate-400 mt-0.5">
-                            Prereq: {elective.prereq}
-                          </p>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
+                          {elective.prereq && (
+                            <p className="text-xs text-slate-400 mt-0.5">
+                              Prereq: {elective.prereq}
+                            </p>
+                          )}
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : gradeLevel === 'high school' ? (
+                  <div className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                    <p className="text-sm text-slate-300">
+                      You selected <span className="text-amber-300 font-medium">High school</span>, so
+                      Luminary won’t recommend upper-division university electives yet. Here’s a prep track
+                      to get you ready.
+                    </p>
+                    <ul className="mt-3 space-y-2">
+                      {prepTrack.map((item) => (
+                        <li key={item} className="text-sm text-slate-200 flex items-start gap-2">
+                          <span className="mt-[7px] h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : (
+                  <p className="text-sm text-slate-400">
+                    No course recommendations were returned for this run.
+                  </p>
+                )}
               </div>
             </section>
 
             {/* Skill Gaps */}
-            <section className="space-y-3">
+            <section className={`space-y-3 ${result.resources.length > 0 ? 'luminary-fade-in' : ''}`}>
               <div>
                 <h2 className="text-xl font-semibold tracking-tight">
                   ⚡ Skill gaps to address
@@ -391,15 +642,49 @@ function App() {
                 </p>
               </div>
               <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                {chatMessages.length > 0 && (
+                  <div className="space-y-3">
+                    {chatMessages.map((msg, idx) => (
+                      <div
+                        key={`${msg.role}-${idx}`}
+                        className={
+                          msg.role === 'user'
+                            ? 'ml-auto max-w-[85%] rounded-2xl bg-amber-400/10 border border-amber-400/20 px-3 py-2 text-sm text-slate-100'
+                            : 'mr-auto max-w-[85%] rounded-2xl bg-slate-900/70 border border-slate-800 px-3 py-2 text-sm text-slate-100'
+                        }
+                      >
+                        <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {chatError && (
+                  <p className="text-sm text-rose-400 bg-rose-950/40 border border-rose-900 px-3 py-2 rounded-lg">
+                    {chatError}
+                  </p>
+                )}
+
                 <div className="flex gap-3">
                   <input
                     className="flex-1 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60"
                     placeholder="e.g. What class should I take first? Can I finish in 2 semesters?"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        handleAskLuminary()
+                      }
+                    }}
+                    disabled={chatLoading}
                   />
                   <button
                     className="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-medium text-[#0c0c0e] hover:bg-amber-300"
+                    onClick={handleAskLuminary}
+                    disabled={chatLoading || chatInput.trim().length === 0}
                   >
-                    Ask ✨
+                    {chatLoading ? 'Asking…' : 'Ask ✨'}
                   </button>
                 </div>
                 <p className="text-xs text-slate-500">

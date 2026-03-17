@@ -1,11 +1,15 @@
+import asyncio
 import io
 import json
 import os
+import statistics
+import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 import httpx
 import pdfplumber
@@ -47,6 +51,59 @@ def load_csun_catalog() -> None:
 
 load_csun_catalog()
 
+def _summarize_anthropic_content_blocks(content: list) -> str:
+    """Best-effort summary of Anthropic response blocks for debugging."""
+    try:
+        parts = []
+        for block in content or []:
+            btype = getattr(block, "type", type(block).__name__)
+            name = getattr(block, "name", None)
+            parts.append(f"{btype}{'(' + name + ')' if name else ''}")
+        return "[" + ", ".join(parts) + "]"
+    except Exception:
+        return "[unavailable]"
+
+
+def _extract_first_json_object(text: str) -> str | None:
+    """
+    Best-effort extraction of the first top-level JSON object substring.
+    This is a fallback for when the model wraps JSON in extra prose.
+    """
+    if not text:
+        return None
+    start = text.find("{")
+    end = text.rfind("}")
+    if start == -1 or end == -1 or end <= start:
+        return None
+    return text[start : end + 1]
+
+
+def _parse_model_json(text: str, *, debug_context: str) -> dict:
+    raw = (text or "").strip()
+    if not raw:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Model returned empty text; cannot parse JSON. Context: {debug_context}",
+        )
+    try:
+        return json.loads(raw)
+    except Exception:
+        extracted = _extract_first_json_object(raw)
+        if extracted and extracted != raw:
+            try:
+                return json.loads(extracted)
+            except Exception:
+                pass
+        preview = raw[:800]
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "Failed to parse model JSON. "
+                f"Context: {debug_context}. "
+                f"Raw preview (first 800 chars): {preview}"
+            ),
+        )
+
 
 def _course_level(number: str) -> int:
     """Extract numeric level from COMP NNN (e.g. COMP 442 -> 442)."""
@@ -54,6 +111,55 @@ def _course_level(number: str) -> int:
         return int(number.split()[-1].rstrip("/L"))
     except (ValueError, IndexError):
         return 0
+
+
+_COMP_TOKEN_RE = re.compile(r"\bC+O+M+P+\s+(\d{3,9})(L{0,4})\b", re.IGNORECASE)
+_IP_MARK_RE = re.compile(r"\bI+P+\b", re.IGNORECASE)
+
+
+def _normalize_ocr_digits(d: str) -> str:
+    d = (d or "").strip()
+    if not d:
+        return ""
+    # OCR often repeats each digit 3x (e.g. 222888222 -> 282).
+    if len(d) % 3 == 0:
+        candidate = d[0::3]
+        if len(candidate) == 3 and candidate.isdigit():
+            return candidate
+    m = re.search(r"\d{3}", d)
+    return m.group(0) if m else ""
+
+
+def _normalize_course_number(n: str) -> str:
+    return (n or "").upper().split("/")[0].strip()
+
+
+def extract_comp_courses_from_dpr(text: str) -> tuple[set[str], set[str]]:
+    """
+    Extract COMP course tokens from DPR text.
+    Returns (completed_or_other, in_progress) sets as normalized strings like "COMP 256L".
+    """
+    completed: set[str] = set()
+    in_progress: set[str] = set()
+    if not text:
+        return completed, in_progress
+
+    for m in _COMP_TOKEN_RE.finditer(text):
+        digits = _normalize_ocr_digits(m.group(1))
+        if not digits:
+            continue
+        lab = "L" if m.group(2) else ""
+        code = f"COMP {digits}{lab}"
+
+        # Look near the match for an IP grade marker (OCR may repeat letters, e.g. IIIPPP).
+        window = text[m.start() : min(len(text), m.end() + 32)]
+        if _IP_MARK_RE.search(window):
+            in_progress.add(code)
+        else:
+            completed.add(code)
+
+    completed -= in_progress
+    return completed, in_progress
 
 
 # Topic keywords -> COMP course numbers (from catalog) for elective suggestions
@@ -104,13 +210,23 @@ class ElectiveCourse(BaseModel):
     number: str
     name: str
     prereq: Optional[str] = None
+    in_progress: Optional[bool] = None
 
 
 class AnalyzeResponse(BaseModel):
     fields: List[str]
-    roadmap: List[str]
+    reasoning: str
     electives: List[ElectiveCourse]
     resources: List[dict]
+
+class ChatRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=2000)
+    profile: Dict[str, Any] = Field(default_factory=dict)
+    plan: Dict[str, Any] = Field(default_factory=dict)
+
+
+class ChatResponse(BaseModel):
+    answer: str
 
 
 app = FastAPI(title="AI Career Coach")
@@ -128,30 +244,86 @@ def get_anthropic_client() -> anthropic.Anthropic:
     return anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
 
-async def fetch_jobs(role: str, location: str = "remote") -> List[dict]:
+async def fetch_jobs(role: str) -> Dict[str, Any]:
     """
-    Simple Adzuna API wrapper for illustrative purposes.
+    Adzuna API wrapper. Returns:
+      {"listings": [...], "median_salary": str, "error": str|None}
     """
     if not ADZUNA_APP_ID or not ADZUNA_API_KEY:
-        return []
+        return {"listings": [], "median_salary": "Not listed", "error": "Missing ADZUNA_APP_ID/ADZUNA_API_KEY"}
 
-    url = f"https://api.adzuna.com/v1/api/jobs/us/search/1"
+    role_query = "+".join((role or "").strip().split())
+    if not role_query:
+        return {"listings": [], "median_salary": "Not listed", "error": "No results found for this role"}
+
+    url = "https://api.adzuna.com/v1/api/jobs/us/search/1"
     params = {
         "app_id": ADZUNA_APP_ID,
         "app_key": ADZUNA_API_KEY,
         "results_per_page": 5,
-        "what": role,
-        "where": location,
+        "what": role_query,
         "content-type": "application/json",
     }
-    async with httpx.AsyncClient(timeout=10) as client:
-        try:
+
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
             resp = await client.get(url, params=params)
             resp.raise_for_status()
-        except Exception:
-            return []
-    data = resp.json()
-    return data.get("results", [])
+            data = resp.json()
+    except Exception:
+        return {"listings": [], "median_salary": "Not listed", "error": "No results found for this role"}
+
+    results = data.get("results") or []
+    if not results:
+        return {"listings": [], "median_salary": "Not listed", "error": "No results found for this role"}
+
+    listings: List[dict] = []
+    salary_samples: List[float] = []
+    for job in results:
+        job = job or {}
+        title = job.get("title") or ""
+        desc = job.get("description") or ""
+        company = ((job.get("company") or {}) or {}).get("display_name") or ""
+        location = ((job.get("location") or {}) or {}).get("display_name") or ""
+        salary_min = job.get("salary_min")
+        salary_max = job.get("salary_max")
+
+        def _to_float(v: Any) -> float | None:
+            try:
+                if v is None:
+                    return None
+                return float(v)
+            except Exception:
+                return None
+
+        smin = _to_float(salary_min)
+        smax = _to_float(salary_max)
+        if smin is not None and smax is not None:
+            salary_samples.append((smin + smax) / 2.0)
+        elif smin is not None:
+            salary_samples.append(smin)
+        elif smax is not None:
+            salary_samples.append(smax)
+
+        listings.append(
+            {
+                "title": str(title),
+                "company": str(company),
+                "location": str(location),
+                "salary_min": smin,
+                "salary_max": smax,
+                "description": str(desc)[:400],
+            }
+        )
+
+    if salary_samples:
+        median = statistics.median(sorted(salary_samples))
+        median_k = int(round(median / 1000.0))
+        median_salary = f"${median_k}k"
+    else:
+        median_salary = "Not listed"
+
+    return {"listings": listings, "median_salary": median_salary, "error": None}
 
 
 def suggest_electives(field_name: str, grade_level: str) -> List[dict]:
@@ -193,16 +365,11 @@ def suggest_electives(field_name: str, grade_level: str) -> List[dict]:
 TOOLS = [
     {
         "name": "fetch_jobs",
-        "description": "Look up real job postings for a given role title.",
+        "description": "Look up real job postings for a given role title via Adzuna. Returns {listings, median_salary, error}.",
         "input_schema": {
             "type": "object",
             "properties": {
                 "role": {"type": "string", "description": "Job title to search for."},
-                "location": {
-                    "type": "string",
-                    "description": "Location or 'remote'.",
-                    "default": "remote",
-                },
             },
             "required": ["role"],
         },
@@ -239,21 +406,23 @@ async def run_agentic_loop(payload: AnalyzeRequest) -> AnalyzeResponse:
         "You are an AI career coach for computer science students. "
         "Given a student's background, you will:\n"
         "1) Identify promising CS fields for them (`fields`),\n"
-        "2) Design a weekly learning roadmap (`roadmap`),\n"
+        "2) Explain why you chose these fields (`reasoning`),\n"
         "3) Recommend CSUN COMP electives (`electives`), and\n"
         "4) Suggest concrete learning resources (`resources`).\n\n"
+        "Early in your reasoning, call fetch_jobs with the student's target role (career_goal) to see what skills "
+        "employers are asking for. Use the returned job listing descriptions to prioritize the most in-demand skills "
+        "in your recommendations.\n\n"
         "Use resume_text (if provided) to understand the student's existing skills, experience, and "
         "background. Use degree_progress_text (if provided) to identify which CSUN COMP courses they have "
         "already completed and which are in progress. Cross-reference with the CSUN catalog: recommend only "
-        "courses they have NOT taken yet and are eligible for based on prerequisites. The roadmap must "
-        "explicitly avoid recommending completed courses and prioritize what logically comes next in their degree.\n\n"
+        "courses they have NOT taken yet and are eligible for based on prerequisites.\n\n"
         "For electives: use the suggest_electives tool with the student's grade_level so you only "
         "get courses they are eligible for. Filter out any courses that appear as completed or in-progress "
         "in their degree progress. When you suggest electives, pass the exact "
         "course objects returned by the tool: each must have \"number\", \"name\", and \"prereq\" (or null).\n\n"
         "You have access to tools that can fetch real job postings and suggest CSUN catalog electives. "
         "When you are done, respond ONLY with a single JSON object of the form:\n"
-        '{\"fields\": string[], \"roadmap\": string[], '
+        '{\"fields\": string[], \"reasoning\": string, '
         '\"electives\": [{\"number\": string, \"name\": string, \"prereq\": string or null}], '
         '"resources\": {\"skill\": string, \"items\": string[]}[] }. '
         "Do not include markdown."
@@ -294,13 +463,15 @@ async def run_agentic_loop(payload: AnalyzeRequest) -> AnalyzeResponse:
         if response.stop_reason == "end_turn":
             # Collect all text blocks in assistant message.
             text_chunks: List[str] = []
-            for block in response.content:
-                if block.type == "text":
+            for block in response.content or []:
+                if getattr(block, "type", None) == "text" and getattr(block, "text", None):
                     text_chunks.append(block.text)
-            try:
-                data = json.loads("\n".join(text_chunks))
-            except Exception as exc:
-                raise HTTPException(status_code=500, detail=f"Failed to parse model JSON: {exc}")
+
+            debug_context = (
+                f"stop_reason={getattr(response, 'stop_reason', None)}, "
+                f"blocks={_summarize_anthropic_content_blocks(getattr(response, 'content', None))}"
+            )
+            data = _parse_model_json("\n".join(text_chunks), debug_context=debug_context)
 
             raw_electives = data.get("electives", [])
             electives_list: List[ElectiveCourse] = []
@@ -316,7 +487,7 @@ async def run_agentic_loop(payload: AnalyzeRequest) -> AnalyzeResponse:
 
             return AnalyzeResponse(
                 fields=data.get("fields", []),
-                roadmap=data.get("roadmap", []),
+                reasoning=data.get("reasoning", ""),
                 electives=electives_list,
                 resources=data.get("resources", []),
             )
@@ -329,7 +500,7 @@ async def run_agentic_loop(payload: AnalyzeRequest) -> AnalyzeResponse:
 
             if block.name == "fetch_jobs":
                 args = block.input
-                jobs = await fetch_jobs(role=args.get("role", ""), location=args.get("location", "remote"))
+                jobs = await fetch_jobs(role=args.get("role", ""))
                 tool_results_content.append(
                     {
                         "type": "tool_result",
@@ -337,7 +508,7 @@ async def run_agentic_loop(payload: AnalyzeRequest) -> AnalyzeResponse:
                         "content": [
                             {
                                 "type": "text",
-                                "text": httpx.dumps(jobs) if hasattr(httpx, "dumps") else str(jobs),
+                                "text": json.dumps(jobs),
                             }
                         ],
                     }
@@ -370,6 +541,326 @@ async def run_agentic_loop(payload: AnalyzeRequest) -> AnalyzeResponse:
         )
 
 
+def _ndjson_sse(obj: dict) -> bytes:
+    """
+    Stream newline-delimited JSON chunks over an SSE-compatible content type.
+    We emit each JSON object as a single line prefixed with `data: `.
+    """
+    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode("utf-8")
+
+
+async def _anthropic_text(
+    *,
+    client: anthropic.Anthropic,
+    system: str,
+    user_text: str,
+    max_tokens: int,
+) -> str:
+    # Run sync SDK call off the event loop so streaming stays responsive.
+    response = await asyncio.to_thread(
+        client.messages.create,
+        model="claude-sonnet-4-20250514",
+        max_tokens=max_tokens,
+        system=system,
+        messages=[{"role": "user", "content": [{"type": "text", "text": user_text}]}],
+    )
+
+    text_chunks: List[str] = []
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+            text_chunks.append(block.text)
+    return ("\n".join(text_chunks) or "").strip()
+
+
+def _analyze_user_context(payload: AnalyzeRequest) -> str:
+    user_content = (
+        f"Student name: {payload.name}\n"
+        f"Grade level: {payload.grade_level}\n"
+        f"Interests: {payload.interests}\n"
+        f"Math comfort: {payload.math_comfort}\n"
+        f"Coding exposure: {payload.coding_exposure}\n"
+        f"Career goal: {payload.career_goal}\n"
+    )
+    if payload.transcript:
+        user_content += f"\nTranscript (pasted):\n{payload.transcript}\n"
+    if payload.resume_text:
+        user_content += f"\nResume/Transcript (uploaded PDF text):\n{payload.resume_text}\n"
+    if payload.degree_progress_text:
+        user_content += (
+            "\nDegree progress / audit (uploaded PDF text — use this to see completed and in-progress CSUN courses):\n"
+            f"{payload.degree_progress_text}\n"
+        )
+    return user_content
+
+
+def _is_vague_goal(goal: str) -> bool:
+    g = (goal or "").strip().lower()
+    if not g:
+        return True
+    vague = {
+        "undecided",
+        "not sure",
+        "unsure",
+        "idk",
+        "i don't know",
+        "i dont know",
+        "n/a",
+        "na",
+        "none",
+        "tbd",
+        "maybe",
+        "unknown",
+    }
+    return g in vague
+
+
+def _derive_role_from_interests(interests: str) -> str:
+    text = (interests or "").lower()
+
+    def has_any(*keywords: str) -> bool:
+        return any(k in text for k in keywords)
+
+    if has_any("cryptography", "crypto", "encryption", "security", "pentest", "penetration", "malware"):
+        return "security engineer"
+    if has_any("deep learning", "neural", "ml", "machine learning", "prediction", "predictive", "ai"):
+        return "machine learning engineer"
+    if has_any("data science", "analytics", "data analysis", "statistics", "regression"):
+        return "data scientist"
+    if has_any("frontend", "front-end", "react", "ui", "ux", "web"):
+        return "frontend developer"
+    if has_any("backend", "back-end", "api", "database", "distributed", "systems"):
+        return "software engineer"
+    if has_any("games", "gaming", "game", "unity", "unreal"):
+        return "software engineer"
+    return "software engineer"
+
+
+def _job_market_query(payload: AnalyzeRequest) -> str:
+    if not _is_vague_goal(payload.career_goal):
+        return payload.career_goal
+    return _derive_role_from_interests(payload.interests)
+
+
+def _role_for_field(field: str) -> str:
+    f = (field or "").strip().lower()
+    if not f:
+        return "software engineer"
+    if "cyber" in f or "security" in f or "crypt" in f:
+        return "security engineer"
+    if "machine learning" in f or f in {"ml", "ai"} or "artificial intelligence" in f or "deep learning" in f:
+        return "machine learning engineer"
+    if "data" in f or "analytics" in f:
+        return "data scientist"
+    if "web" in f or "frontend" in f or "ui" in f or "ux" in f or "hci" in f:
+        return "frontend developer"
+    if "network" in f:
+        return "network engineer"
+    if "systems" in f or "operating" in f or "distributed" in f:
+        return "software engineer"
+    return "software engineer"
+
+
+async def stream_analyze(payload: AnalyzeRequest):
+    """
+    Progressive analyze pipeline streamed as SSE (text/event-stream).
+    Emits NDJSON chunks for: status, fields, reasoning, electives, resources, done, error.
+    """
+    client = get_anthropic_client()
+    context = _analyze_user_context(payload)
+
+    # Initialize client-side partial state.
+    yield _ndjson_sse({"type": "init"})
+    yield _ndjson_sse({"type": "status", "stage": "starting", "message": "Warming up Luminary..."})
+    await asyncio.sleep(0)
+
+    # 0) Fields + reasoning first.
+    yield _ndjson_sse({"type": "status", "stage": "fields", "message": "Picking the best tracks for you..."})
+    fields_system = (
+        "You are an AI career coach for computer science students. "
+        "Return ONLY valid JSON (no markdown). "
+        "Output schema: {\"fields\": string[], \"reasoning\": string}.\n\n"
+        "Fields requirements:\n"
+        "- Return EXACTLY 3 fields.\n"
+        "- The 3 fields must be meaningfully different from each other (avoid near-duplicates or subfields under the same umbrella).\n"
+        "- If two fields overlap heavily, replace the more specific/redundant one with a different area.\n"
+        "- At least 1 field must connect the student's technical background with their non-technical interests (e.g., gaming/creativity).\n"
+        "- Treat hobbies as career signals, not just personality traits.\n\n"
+        "Reasoning requirements: 2–3 sentences in plain English explaining WHY you chose these fields, "
+        "explicitly referencing the student's actual inputs (interests, math comfort, grade level, career goal)."
+    )
+    fields_text = await _anthropic_text(
+        client=client,
+        system=fields_system,
+        user_text=context,
+        max_tokens=450,
+    )
+    fields_data = _parse_model_json(fields_text, debug_context="stream_analyze:fields")
+    fields = fields_data.get("fields", []) or []
+    reasoning = str(fields_data.get("reasoning", "") or "").strip()
+    yield _ndjson_sse({"type": "fields", "fields": fields})
+    yield _ndjson_sse({"type": "reasoning", "reasoning": reasoning})
+
+    # 1) Job market research (Adzuna) — once per field
+    yield _ndjson_sse({"type": "status", "stage": "job_market", "message": "Researching the job market..."})
+
+    async def _field_market(field_name: str) -> dict:
+        role_query = _role_for_field(field_name)
+        jm = await fetch_jobs(role_query)
+        listings = jm.get("listings") or []
+
+        companies: List[str] = []
+        locations: List[str] = []
+        titles: List[str] = []
+        seen_companies = set()
+        seen_locations = set()
+        seen_titles = set()
+
+        for l in listings:
+            t = str((l or {}).get("title") or "").strip()
+            if t and t not in seen_titles:
+                seen_titles.add(t)
+                titles.append(t)
+            c = str((l or {}).get("company") or "").strip()
+            if c and c not in seen_companies:
+                seen_companies.add(c)
+                companies.append(c)
+            loc = str((l or {}).get("location") or "").strip()
+            if loc:
+                # Adzuna often includes county; keep the most user-friendly prefix.
+                loc = loc.split(",")[0].strip()
+            if loc and loc not in seen_locations:
+                seen_locations.add(loc)
+                locations.append(loc)
+
+        return {
+            "field": field_name,
+            "median_salary": jm.get("median_salary", "Not listed"),
+            "companies": companies[:3],
+            "locations": locations[:3],
+            "titles": titles[:3],
+            "listings": listings,  # keep full listings for prompting resources
+        }
+
+    job_market_results: List[dict] = []
+    # Stream results as they complete.
+    tasks = [asyncio.create_task(_field_market(f)) for f in (fields or [])]
+    for coro in asyncio.as_completed(tasks):
+        res = await coro
+        job_market_results.append(res)
+        yield _ndjson_sse(
+            {
+                "type": "job_market",
+                "field": res["field"],
+                "median_salary": res["median_salary"],
+                "companies": res["companies"],
+                "locations": res["locations"],
+                "titles": res["titles"],
+            }
+        )
+
+    job_market_prompt = json.dumps(
+        [
+            {"field": r["field"], "listings": r.get("listings", [])}
+            for r in job_market_results
+        ],
+        ensure_ascii=False,
+    )
+
+    # 2) Electives (catalog-driven; fast)
+    yield _ndjson_sse({"type": "status", "stage": "electives", "message": "Matching electives to your interests..."})
+    top_field = fields[0] if fields else payload.career_goal
+    electives = suggest_electives(field_name=str(top_field), grade_level=payload.grade_level)
+    completed, in_progress = extract_comp_courses_from_dpr(payload.degree_progress_text or "")
+
+    filtered: List[dict] = []
+    for e in electives:
+        num = _normalize_course_number(str((e or {}).get("number") or ""))
+        if num and num in completed:
+            continue
+        if num and num in in_progress:
+            e = {**e, "in_progress": True}
+        filtered.append(e)
+
+    yield _ndjson_sse({"type": "electives", "electives": filtered})
+
+    # 3) Resources
+    yield _ndjson_sse({"type": "status", "stage": "resources", "message": "Curating resources for your skill gaps..."})
+    resources_system = (
+        "You are an AI career coach. Return ONLY valid JSON (no markdown). "
+        "Output schema: {\"resources\": [{\"skill\": string, \"items\": string[]}]}.\n"
+        "Give 4–6 skills. Each should have 3–6 specific resources (courses, docs, playlists, practice sites)."
+        "Prioritize skills that appear frequently in the provided job listing descriptions."
+    )
+    resources_user = (
+        context
+        + "\nSelected fields:\n"
+        + json.dumps(fields, ensure_ascii=False)
+        + "\nJob market listings (by field):\n"
+        + job_market_prompt
+    )
+    resources_text = await _anthropic_text(
+        client=client,
+        system=resources_system,
+        user_text=resources_user,
+        max_tokens=800,
+    )
+    resources_data = _parse_model_json(resources_text, debug_context="stream_analyze:resources")
+    resources = resources_data.get("resources", []) or []
+    yield _ndjson_sse({"type": "resources", "resources": resources})
+
+    yield _ndjson_sse({"type": "done"})
+
+
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest) -> ChatResponse:
+    """
+    Single-turn Q&A endpoint.
+    The client sends the user's question plus the plan/profile context; the server returns one answer.
+    """
+    client = get_anthropic_client()
+
+    system_prompt = (
+        "You are Luminary, an academic advisor for computer science students. "
+        "Answer the student's question using the provided context. "
+        "Be concise, practical, and specific. "
+        "If the context doesn't contain enough information, say what you'd need next. "
+        "Do not output JSON; return plain text only."
+    )
+
+    user_text = (
+        "Context (student profile):\n"
+        f"{json.dumps(request.profile, ensure_ascii=False)}\n\n"
+        "Context (their generated plan):\n"
+        f"{json.dumps(request.plan, ensure_ascii=False)}\n\n"
+        f"Question: {request.question}\n"
+    )
+
+    response = client.messages.create(
+        model="claude-sonnet-4-20250514",
+        max_tokens=500,
+        system=system_prompt,
+        messages=[{"role": "user", "content": [{"type": "text", "text": user_text}]}],
+    )
+
+    text_chunks: List[str] = []
+    for block in getattr(response, "content", None) or []:
+        if getattr(block, "type", None) == "text" and getattr(block, "text", None):
+            text_chunks.append(block.text)
+
+    debug_context = (
+        f"stop_reason={getattr(response, 'stop_reason', None)}, "
+        f"blocks={_summarize_anthropic_content_blocks(getattr(response, 'content', None))}"
+    )
+    answer = ("\n".join(text_chunks) or "").strip()
+    if not answer:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Model returned empty answer text. Context: {debug_context}",
+        )
+
+    return ChatResponse(answer=answer)
+
+
 @app.post("/upload-pdf")
 async def upload_pdf(file: UploadFile = File(...)) -> dict:
     """Accept a PDF file, extract text with pdfplumber, return extracted text."""
@@ -388,14 +879,19 @@ async def upload_pdf(file: UploadFile = File(...)) -> dict:
         raise HTTPException(status_code=400, detail=f"Failed to extract text from PDF: {e!s}")
 
 
-@app.post("/analyze", response_model=AnalyzeResponse)
+@app.post("/analyze")
 async def analyze(request: AnalyzeRequest):
-    try:
-        return await run_agentic_loop(request)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    async def event_stream():
+        try:
+            async for chunk in stream_analyze(request):
+                yield chunk
+        except HTTPException as exc:
+            # Emit a final error chunk so the frontend can show it.
+            yield _ndjson_sse({"type": "error", "detail": exc.detail})
+        except Exception as exc:
+            yield _ndjson_sse({"type": "error", "detail": str(exc)})
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 if __name__ == "__main__":

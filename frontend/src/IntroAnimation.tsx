@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import luminaryLogo from './assets/luminary_logo.png'
 
 const DURATION_MS = 3200
 const BULB_LIGHT_UP_MS = 800
@@ -51,21 +52,12 @@ export default function IntroAnimation({ onComplete }: { onComplete: () => void 
             }`}
           >
             <div className="rounded-full border-2 border-amber-400/80 bg-[#0c0c0e] p-4 shadow-[0_0_24px_rgba(251,191,36,0.4)]">
-              <svg
-                className="w-10 h-10 text-amber-400 drop-shadow-[0_0_8px_rgba(251,191,36,0.6)]"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
+              <img
+                src={luminaryLogo}
+                alt=""
+                className="w-12 h-12 object-contain drop-shadow-[0_0_10px_rgba(251,191,36,0.65)]"
                 aria-hidden="true"
-              >
-                <path d="M4 12h16M4 8h8m-8 8h6" />
-                <circle cx="18" cy="12" r="2" fill="currentColor" />
-                <circle cx="10" cy="8" r="2" fill="currentColor" />
-                <circle cx="8" cy="16" r="2" fill="currentColor" />
-              </svg>
+              />
             </div>
           </div>
         </div>
