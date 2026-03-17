@@ -446,9 +446,33 @@ function App() {
         )}
 
         {step === 'results' && result && (
-          <div className="space-y-8 text-left">
+                  <div className="space-y-8 text-left">
 
-            {/* Header */}
+                    {/* Loading overlay */}
+                    {loading && (
+                      <div className="flex flex-col items-center justify-center py-20 space-y-6">
+                        <div className="relative">
+                          <div className="h-16 w-16 rounded-full border-4 border-amber-400/20 border-t-amber-400 animate-spin" />
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <span className="text-xl">🎓</span>
+                          </div>
+                        </div>
+                        <div className="text-center space-y-2">
+                          <p className="text-amber-400 font-medium text-lg">Generating your future...</p>
+                          <p className="text-slate-400 text-sm">{progressMessage}</p>
+                        </div>
+                        <div className="flex gap-1.5">
+                          {[0,1,2].map((i) => (
+                            <div key={i} className="h-1.5 w-1.5 rounded-full bg-amber-400 animate-bounce" style={{ animationDelay: `${i * 0.15}s` }} />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                     {!loading && (
+                       <div className="space-y-8">
+
+             {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
                 <p className="text-sm font-medium text-amber-400 tracking-wide uppercase mb-1">
@@ -467,16 +491,31 @@ function App() {
             </div>
 
             {/* Summary Card */}
-            <section className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-6 py-5 luminary-fade-in">
-              <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-2">
-                Where you stand
-              </p>
-              <p className="text-sm text-slate-300 leading-relaxed">
-                {result.fields.length > 0
-                  ? `Based on your background and goals, you're well-positioned to pursue ${result.fields.slice(0, 2).join(' and ')}. Here's what Luminary recommends to get you across the finish line.`
-                  : 'Based on your profile, here is your personalized graduation plan.'}
-              </p>
-            </section>
+                        <section className="relative rounded-2xl border-2 border-amber-400/40 bg-gradient-to-br from-amber-400/10 via-amber-400/5 to-transparent px-6 py-6 luminary-fade-in overflow-hidden">
+                          <div className="absolute top-0 right-0 w-32 h-32 bg-amber-400/10 rounded-full blur-2xl pointer-events-none" />
+                          <div className="flex items-center gap-3 mb-3">
+                            <div className="h-8 w-8 rounded-full bg-amber-400 flex items-center justify-center text-[#0c0c0e] font-bold text-sm shrink-0">
+                              ✦
+                            </div>
+                            <p className="text-sm font-bold text-amber-400 uppercase tracking-widest">
+                              Where you stand
+                            </p>
+                          </div>
+                          <p className="text-base text-slate-200 leading-relaxed font-medium">
+                            {result.fields.length > 0
+                              ? `Based on your background and goals, you're well-positioned to pursue ${result.fields.slice(0, 2).join(' and ')}. Here's what Luminary recommends to get you across the finish line.`
+                              : 'Based on your profile, here is your personalized graduation plan.'}
+                          </p>
+                          {result.fields.length > 0 && (
+                            <div className="flex flex-wrap gap-2 mt-4">
+                              {result.fields.map((field) => (
+                                <span key={field} className="inline-flex items-center rounded-full bg-amber-400 px-3 py-1 text-xs font-bold text-[#0c0c0e]">
+                                  {field}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </section>
 
             {/* Explainability */}
             {result.reasoning && (
@@ -499,8 +538,8 @@ function App() {
             {result.job_market.length > 0 && (
               <section className="space-y-3 luminary-fade-in">
                 <p className="text-xs font-semibold text-slate-300 uppercase tracking-widest mb-2">
-                  Job market snapshot
-                </p>
+                Career paths that match your goals
+                                </p>
                 <div className="grid gap-3 md:grid-cols-3">
                   {result.job_market.map((jm) => (
                     <article
@@ -667,37 +706,38 @@ function App() {
               </div>
             </section>
 
-            {/* Skill Gaps */}
-            <section className={`space-y-3 ${result.resources.length > 0 ? 'luminary-fade-in' : ''}`}>
-              <div>
-                <h2 className="text-xl font-semibold tracking-tight">
-                  ⚡ Skill gaps to address
-                </h2>
-                <p className="text-slate-400 text-sm mt-1">
-                  These are areas to strengthen before graduation.
-                </p>
-              </div>
-              <div className="grid gap-3 md:grid-cols-2">
-                {result.resources.map((group) => (
-                  <article
-                    key={group.skill}
-                    className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4"
-                  >
-                    <h3 className="text-sm font-semibold text-amber-400 mb-2">
-                      {group.skill}
-                    </h3>
-                    <ul className="space-y-1">
-                      {group.items.map((item) => (
-                        <li key={item} className="text-xs text-slate-300 flex items-start gap-2">
-                          <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
-                          {item}
-                        </li>
-                      ))}
-                    </ul>
-                  </article>
-                ))}
-              </div>
-            </section>
+            {/* Skill Gaps Accordion */}
+                        <section className={`space-y-3 ${result.resources.length > 0 ? 'luminary-fade-in' : ''}`}>
+                          <div>
+                            <h2 className="text-xl font-semibold tracking-tight">
+                              ⚡ Skill gaps to address
+                            </h2>
+                            <p className="text-slate-400 text-sm mt-1">
+                              These are areas to strengthen before graduation. Click each to expand.
+                            </p>
+                          </div>
+                          <div className="space-y-2">
+                            {result.resources.map((group) => (
+                              <details
+                                key={group.skill}
+                                className="group rounded-2xl bg-slate-900/70 border border-slate-800 overflow-hidden"
+                              >
+                                <summary className="flex items-center justify-between px-4 py-3 cursor-pointer list-none hover:bg-slate-800/50 transition-colors">
+                                  <span className="text-sm font-semibold text-amber-400">{group.skill}</span>
+                                  <span className="text-slate-400 text-xs group-open:rotate-180 transition-transform">▼</span>
+                                </summary>
+                                <ul className="px-4 pb-4 space-y-1 border-t border-slate-800 pt-3">
+                                  {group.items.map((item) => (
+                                    <li key={item} className="text-xs text-slate-300 flex items-start gap-2">
+                                      <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                                      {item}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            ))}
+                          </div>
+                        </section>
 
             {/* Chat */}
             <section className="space-y-3">
@@ -760,13 +800,14 @@ function App() {
                 </p>
               </div>
             </section>
-
           </div>
- )}
-         </div>
-       </div>
-     </>
-   )
- }
+            )}
+          </div>
+        )}
+        </div>
+      </div>
+    </>
+  )
+}
 
- export default App
+export default App
