@@ -121,10 +121,14 @@ def _normalize_ocr_digits(d: str) -> str:
     d = (d or "").strip()
     if not d:
         return ""
-    # OCR often repeats each digit 3x (e.g. 222888222 -> 282).
-    if len(d) % 3 == 0:
-        candidate = d[0::3]
-        if len(candidate) == 3 and candidate.isdigit():
+    # OCR often repeats each digit (e.g. 331100 -> 310, 222888222 -> 282).
+    if len(d) == 6 and all(d[i] == d[i + 1] for i in (0, 2, 4)):
+        candidate = d[0] + d[2] + d[4]
+        if candidate.isdigit():
+            return candidate
+    if len(d) == 9 and all(d[i] == d[i + 1] == d[i + 2] for i in (0, 3, 6)):
+        candidate = d[0] + d[3] + d[6]
+        if candidate.isdigit():
             return candidate
     m = re.search(r"\d{3}", d)
     return m.group(0) if m else ""
@@ -132,6 +136,14 @@ def _normalize_ocr_digits(d: str) -> str:
 
 def _normalize_course_number(n: str) -> str:
     return (n or "").upper().split("/")[0].strip()
+
+
+def _base_comp(course: str) -> str:
+    c = (course or "").strip().upper()
+    # Treat lab suffixes as part of the base course in this app (catalog entries include lab in the title).
+    if c.endswith("L") and len(c) >= 2 and c[-2].isdigit():
+        return c[:-1]
+    return c
 
 
 def extract_comp_courses_from_dpr(text: str) -> tuple[set[str], set[str]]:
@@ -144,22 +156,165 @@ def extract_comp_courses_from_dpr(text: str) -> tuple[set[str], set[str]]:
     if not text:
         return completed, in_progress
 
-    for m in _COMP_TOKEN_RE.finditer(text):
+    # Only count a course as taken if the same line contains a grade marker.
+    # This avoids incorrectly treating "needed" course lists as completed.
+    grade_re = re.compile(r"\b(?:I+P+|E+X+|A\+?|A-?|B\+?|B-?|C\+?|C-?|D\+?|D-?|F)\b", re.IGNORECASE)
+
+    for line in text.splitlines():
+        if "COMP" not in line.upper() and "CCOOOMMMP" not in line.upper():
+            continue
+        m = _COMP_TOKEN_RE.search(line)
+        if not m:
+            continue
         digits = _normalize_ocr_digits(m.group(1))
         if not digits:
             continue
         lab = "L" if m.group(2) else ""
         code = f"COMP {digits}{lab}"
 
-        # Look near the match for an IP grade marker (OCR may repeat letters, e.g. IIIPPP).
-        window = text[m.start() : min(len(text), m.end() + 32)]
-        if _IP_MARK_RE.search(window):
+        if _IP_MARK_RE.search(line):
             in_progress.add(code)
-        else:
+        elif grade_re.search(line):
             completed.add(code)
+        else:
+            # No grade marker on this line → treat as "listed/needed", not completed.
+            continue
 
     completed -= in_progress
+    # Normalize lab variants to their base course so COMP 380/L is treated as COMP 380.
+    completed = {_base_comp(c) for c in completed}
+    in_progress = {_base_comp(c) for c in in_progress}
+    completed -= in_progress
     return completed, in_progress
+
+
+_COMP_PREREQ_RE = re.compile(r"\bCOMP\s+\d{3}(?:L)?\b", re.IGNORECASE)
+
+
+def extract_required_comp_core_from_dpr(text: str) -> set[str]:
+    """
+    Best-effort extraction of required COMP core courses from the DPR section:
+    "NO COMPUTER SCIENCE UPPER DIVISION CORE REQUIREMENTS ... TAKE ALL OF THE LISTED COURSES".
+    Returns normalized strings like "COMP 380L" or "COMP 333".
+    """
+    if not text:
+        return set()
+
+    upper = text.upper()
+    start = upper.find("NO COMPUTER SCIENCE UPPER DIVISION CORE")
+    if start == -1:
+        return set()
+
+    # Stop at senior electives section or end of doc
+    end = upper.find("NO COMPUTER SCIENCE SENIOR ELECTIVE", start)
+    if end == -1:
+        end = len(text)
+
+    section = text[start:end]
+    # This section contains normal and OCR-expanded tokens.
+    required: set[str] = set()
+
+    # 1) Capture explicit COMP tokens (e.g. "COMP 333", "CCOOOMMMPPP 333333").
+    for m in _COMP_TOKEN_RE.finditer(section):
+        digits = _normalize_ocr_digits(m.group(1))
+        if not digits:
+            continue
+        required.add(f"COMP {digits}")
+
+    # 2) Capture DPR "COURSE LIST:: COMP 331100,,332222 ,,332222LL,," style lists
+    # where COMP prefix appears once and subsequent items are bare numbers.
+    for line in section.splitlines():
+        # Match OCR variants like "CCOOUURRSSEE LLIISSTT::"
+        if not re.search(r"C+O+U+R+S+E+.*L+I+S+T+", line, re.IGNORECASE):
+            continue
+        # Match OCR variants like COMP / CCOOMMPP / CCOOOMMMPPP etc.
+        mcomp = re.search(r"C+O+M+P+", line, re.IGNORECASE)
+        if not mcomp:
+            continue
+        after = line[mcomp.end() :]
+        for token in re.split(r"[,\s]+", after):
+            token = token.strip()
+            if not token:
+                continue
+            m2 = re.match(r"^(\d{3,9})(L{0,4})$", token, re.IGNORECASE)
+            if not m2:
+                continue
+            digits = _normalize_ocr_digits(m2.group(1))
+            if not digits:
+                continue
+            required.add(f"COMP {digits}")
+
+    return required
+
+
+def build_remaining_degree_roadmap(
+    *,
+    required: set[str],
+    completed: set[str],
+    in_progress: set[str],
+    catalog_by_number: dict,
+) -> List[dict]:
+    """
+    Group remaining required COMP courses by semester based on COMP prerequisites.
+    Excludes completed and in-progress courses from the remaining list.
+    """
+    required = {_base_comp(c) for c in required}
+    completed = {_base_comp(c) for c in completed}
+    in_progress = {_base_comp(c) for c in in_progress}
+
+    remaining = sorted(required - completed - in_progress)
+    if not remaining:
+        return []
+
+    satisfied = set(completed) | set(in_progress)
+    remaining_set = set(remaining)
+
+    def comp_prereqs(course_number: str) -> set[str]:
+        course = catalog_by_number.get(course_number)
+        prereq_text = (course.get("prereq") if course else "") or ""
+        prereqs = set()
+        for token in _COMP_PREREQ_RE.findall(prereq_text):
+            prereqs.add(_normalize_course_number(token))
+        return prereqs
+
+    semesters: List[dict] = []
+    semester_idx = 1
+    safety = 0
+    while remaining_set and safety < 20:
+        safety += 1
+        available = []
+        for c in sorted(remaining_set):
+            prereqs = comp_prereqs(c)
+            if prereqs.issubset(satisfied | (set(required) - remaining_set)):
+                available.append(c)
+
+        if not available:
+            # If we can't schedule due to missing prereqs in catalog parsing, dump remaining as "Later".
+            available = sorted(remaining_set)
+            label = "Later"
+        else:
+            label = f"Semester {semester_idx}"
+            semester_idx += 1
+
+        courses = []
+        for c in available:
+            course = catalog_by_number.get(c, {"number": c, "name": c, "prereq": None})
+            courses.append(
+                {
+                    "number": course.get("number", c),
+                    "name": course.get("name", ""),
+                    "prereq": course.get("prereq") or None,
+                }
+            )
+            remaining_set.discard(c)
+            satisfied.add(c)
+
+        semesters.append({"semester": label, "courses": courses})
+
+        if label == "Later":
+            break
+
+    return semesters
 
 
 # Topic keywords -> COMP course numbers (from catalog) for elective suggestions
@@ -213,11 +368,55 @@ class ElectiveCourse(BaseModel):
     in_progress: Optional[bool] = None
 
 
+class RemainingCourse(BaseModel):
+    number: str
+    name: str
+    prereq: Optional[str] = None
+
+
+class RemainingSemester(BaseModel):
+    semester: str
+    courses: List[RemainingCourse]
+
+
 class AnalyzeResponse(BaseModel):
     fields: List[str]
     reasoning: str
     electives: List[ElectiveCourse]
     resources: List[dict]
+    remaining_courses: List[RemainingSemester] = []
+
+
+_SENIOR_ELECTIVE_UNITS_RE = re.compile(
+    r"NO\s+COMPUTER\s+SCIENCE\s+SENIOR\s+ELECTIVE\s+REQUIREMENT\s*\(\s*(\d+)\s*UNITS\s*\)",
+    re.IGNORECASE,
+)
+_NEEDS_UNITS_RE = re.compile(r"N+E+E+D+S+::\s*([0-9\.]+)\s*U+N+I+T+S+", re.IGNORECASE)
+
+
+def extract_senior_elective_units_remaining(text: str) -> int | None:
+    if not text:
+        return None
+    m = _SENIOR_ELECTIVE_UNITS_RE.search(text)
+    if m:
+        try:
+            return int(m.group(1))
+        except Exception:
+            pass
+    # Fallback: look for NEEDS in the senior elective section
+    upper = text.upper()
+    start = upper.find("NO COMPUTER SCIENCE SENIOR ELECTIVE")
+    if start != -1:
+        end = min(len(text), start + 800)
+        section = text[start:end]
+        m2 = _NEEDS_UNITS_RE.search(section)
+        if m2:
+            try:
+                return int(round(float(m2.group(1))))
+            except Exception:
+                return None
+    return None
+
 
 class ChatRequest(BaseModel):
     question: str = Field(..., min_length=1, max_length=2000)
@@ -699,6 +898,33 @@ async def stream_analyze(payload: AnalyzeRequest):
     reasoning = str(fields_data.get("reasoning", "") or "").strip()
     yield _ndjson_sse({"type": "fields", "fields": fields})
     yield _ndjson_sse({"type": "reasoning", "reasoning": reasoning})
+
+    # 0.5) Remaining required COMP roadmap (DPR + catalog)
+    yield _ndjson_sse({"type": "status", "stage": "degree_roadmap", "message": "Building your degree roadmap..."})
+    completed, in_progress = extract_comp_courses_from_dpr(payload.degree_progress_text or "")
+    required_core = extract_required_comp_core_from_dpr(payload.degree_progress_text or "")
+    catalog_by_number = {c["number"].split("/")[0].strip().upper(): c for c in CSUN_CATALOG}
+    remaining_courses = build_remaining_degree_roadmap(
+        required=required_core,
+        completed=completed,
+        in_progress=in_progress,
+        catalog_by_number=catalog_by_number,
+    )
+    elective_units = extract_senior_elective_units_remaining(payload.degree_progress_text or "")
+    if elective_units and elective_units > 0:
+        remaining_courses.append(
+            {
+                "semester": "Senior electives",
+                "courses": [
+                    {
+                        "number": f"{elective_units} units",
+                        "name": "Senior electives remaining (400/500-level COMP).",
+                        "prereq": "Choose eligible electives that fit your interests and schedule.",
+                    }
+                ],
+            }
+        )
+    yield _ndjson_sse({"type": "remaining_courses", "remaining_courses": remaining_courses})
 
     # 1) Job market research (Adzuna) — once per field
     yield _ndjson_sse({"type": "status", "stage": "job_market", "message": "Researching the job market..."})

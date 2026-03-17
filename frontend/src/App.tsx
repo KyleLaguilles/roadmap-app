@@ -18,6 +18,10 @@ interface ElectiveCourse {
 interface AnalyzeResponse {
   fields: string[]
   reasoning: string
+  remaining_courses: {
+    semester: string
+    courses: { number: string; name: string; prereq?: string | null }[]
+  }[]
   job_market: {
     field: string
     median_salary: string
@@ -113,6 +117,7 @@ function App() {
     setResult({
       fields: [],
       reasoning: '',
+      remaining_courses: [],
       job_market: [],
       electives: [],
       resources: [],
@@ -201,6 +206,10 @@ function App() {
             setResult((prev) => (prev ? { ...prev, reasoning: chunk.reasoning ?? '' } : prev))
           } else if (chunk.type === 'electives') {
             setResult((prev) => (prev ? { ...prev, electives: chunk.electives ?? [] } : prev))
+          } else if (chunk.type === 'remaining_courses') {
+            setResult((prev) =>
+              prev ? { ...prev, remaining_courses: chunk.remaining_courses ?? [] } : prev,
+            )
           } else if (chunk.type === 'resources') {
             setResult((prev) => (prev ? { ...prev, resources: chunk.resources ?? [] } : prev))
           } else if (chunk.type === 'error') {
@@ -528,6 +537,65 @@ function App() {
                           ))}
                         </ul>
                       )}
+                    </article>
+                  ))}
+                </div>
+              </section>
+            )}
+
+            {/* Full degree roadmap */}
+            {result.remaining_courses.length > 0 && (
+              <section className="space-y-3 luminary-fade-in">
+                {result.remaining_courses.some((s) => s.semester === 'Senior electives') && (
+                  <article className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4">
+                    <p className="text-sm font-semibold text-amber-300">🎓 Elective units remaining</p>
+                    <p className="text-sm text-slate-200 mt-1">
+                      {result.remaining_courses.find((s) => s.semester === 'Senior electives')?.courses?.[0]?.number ?? ''}
+                      {' '}
+                      senior electives remaining.
+                    </p>
+                  </article>
+                )}
+                <div>
+                  <h2 className="text-xl font-semibold tracking-tight">
+                    🗺️ Your full degree roadmap
+                  </h2>
+                  <p className="text-slate-400 text-sm mt-1">
+                    Remaining required COMP courses (excludes completed and in-progress).
+                  </p>
+                </div>
+                <div className="grid gap-3">
+                  {result.remaining_courses
+                    .filter((sem) => sem.semester !== 'Senior electives')
+                    .map((sem) => (
+                    <article
+                      key={sem.semester}
+                      className="rounded-2xl border border-slate-800 bg-slate-900/50 p-4"
+                    >
+                      <p className="text-sm font-semibold text-amber-300 mb-2">
+                        {sem.semester}
+                      </p>
+                      <ul className="space-y-2">
+                        {sem.courses.map((c) => (
+                          <li
+                            key={c.number}
+                            className="flex items-start gap-2 rounded-xl bg-slate-900/70 border border-slate-800 px-3 py-2"
+                          >
+                            <span className="mt-[6px] h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                            <div className="text-sm">
+                              <span className="font-medium text-amber-400/90">{c.number}</span>
+                              <span className="text-slate-100">
+                                {c.name ? ` — ${c.name}` : ''}
+                              </span>
+                              {c.prereq && (
+                                <p className="text-xs text-slate-400 mt-0.5">
+                                  Prereq: {c.prereq}
+                                </p>
+                              )}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
                     </article>
                   ))}
                 </div>
