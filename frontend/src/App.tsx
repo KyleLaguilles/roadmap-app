@@ -92,14 +92,13 @@ function App() {
         <div className="relative z-10 w-full max-w-5xl rounded-3xl border-2 border-dashed border-amber-400/50 bg-slate-900/40 backdrop-blur shadow-[0_0_40px_rgba(251,191,36,0.08)] p-8 md:p-10 space-y-8">
           <header className="space-y-2 text-center md:text-left">
             <p className="text-sm font-medium text-amber-400 tracking-wide uppercase drop-shadow-[0_0_12px_rgba(251,191,36,0.4)]">
-              AI Career Coach
+              Luminary AI — Academic Advisor
             </p>
             <h1 className="text-3xl md:text-4xl font-semibold tracking-tight text-amber-400/95 drop-shadow-[0_0_20px_rgba(251,191,36,0.35)]">
-              Design your CS journey with an agentic coach
+              Let us help light the way to graduation
             </h1>
             <p className="text-slate-400 max-w-2xl">
-              Tell the coach where you are today. It will research the job market, pick
-              focus areas, and outline a weekly roadmap tailored to you.
+              Tell us where you are today. Upload your DPR and we'll map out the fastest path to graduation, tailored to you.
             </p>
           </header>
 
@@ -270,10 +269,10 @@ function App() {
                 {loading ? (
                   <>
                     <span className="h-4 w-4 animate-spin rounded-full border-2 border-amber-200 border-t-transparent" />
-                    <span>Your agent is researching the job market...</span>
+                    <span>Luminary is mapping your path to graduation...</span>
                   </>
                 ) : (
-                  <>Generate my roadmap</>
+                  <>Light the way 🎓</>
                 )}
               </button>
             </div>
@@ -282,70 +281,42 @@ function App() {
 
         {step === 'results' && result && (
           <div className="space-y-8 text-left">
+
+            {/* Header */}
             <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-semibold tracking-tight">
-                  Your recommended CS focus areas
-                </h2>
-                <p className="text-slate-300">
-                  These are the fields the agent believes fit your background and
-                  goals.
+                <p className="text-sm font-medium text-amber-400 tracking-wide uppercase mb-1">
+                  Your Personalized Plan
                 </p>
+                <h2 className="text-2xl font-semibold tracking-tight">
+                  Your path to graduation is ready ✨
+                </h2>
               </div>
               <button
                 onClick={handleReset}
-                className="inline-flex items-center justify-center rounded-xl border border-slate-700 px-4 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800"
+                className="inline-flex items-center justify-center rounded-xl border border-amber-400/30 px-4 py-2 text-sm font-medium text-amber-400 hover:bg-amber-400/10"
               >
-                Start over
+                ← Start over
               </button>
             </div>
 
-            <section className="grid gap-4 md:grid-cols-3">
-              {result.fields.map((field) => (
-                <article
-                  key={field}
-                  className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4"
-                >
-                  <h3 className="text-sm font-semibold text-slate-50 mb-1">
-                    {field}
-                  </h3>
-                  <p className="text-xs text-slate-400">
-                    A high-potential track for you based on the current market and your
-                    inputs.
-                  </p>
-                </article>
-              ))}
-            </section>
-
-            <section className="space-y-3">
-              <h2 className="text-xl font-semibold tracking-tight">
-                Weekly roadmap timeline
-              </h2>
-              <p className="text-slate-300 text-sm">
-                Treat each item as a focused week. Adjust pacing based on your
-                schedule.
+            {/* Summary Card */}
+            <section className="rounded-2xl border border-amber-400/20 bg-amber-400/5 px-6 py-5">
+              <p className="text-xs font-semibold text-amber-400 uppercase tracking-widest mb-2">
+                Where you stand
               </p>
-              <ol className="relative border-l border-slate-800 pl-4 space-y-4">
-                {result.roadmap.map((item, index) => (
-                  <li key={index} className="ml-2">
-                    <div className="absolute -left-[9px] mt-1 h-3 w-3 rounded-full bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]" />
-                    <div className="rounded-xl bg-slate-900/70 border border-slate-800 px-4 py-3">
-                      <p className="text-xs font-medium text-amber-400/90 mb-1">
-                        Week {index + 1}
-                      </p>
-                      <p className="text-sm text-slate-100 whitespace-pre-line">
-                        {item}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+              <p className="text-sm text-slate-300 leading-relaxed">
+                {result.fields.length > 0
+                  ? `Based on your background and goals, you're well-positioned to pursue ${result.fields.slice(0, 2).join(' and ')}. Here's what Luminary recommends to get you across the finish line.`
+                  : 'Based on your profile, here is your personalized graduation plan.'}
+              </p>
             </section>
 
-            <section className="grid gap-6 md:grid-cols-2">
-              <div className="space-y-3">
+            {/* Recommended Courses */}
+            <section className="space-y-3">
+              <div>
                 <h2 className="text-xl font-semibold tracking-tight">
-                  Suggested electives
+                  📚 Courses to take next
                 </h2>
                 <p className="text-slate-300 text-sm">
                   Use this list when picking university courses or high-quality
@@ -375,41 +346,74 @@ function App() {
                   ))}
                 </ul>
               </div>
+            </section>
 
-              <div className="space-y-3">
+            {/* Skill Gaps */}
+            <section className="space-y-3">
+              <div>
                 <h2 className="text-xl font-semibold tracking-tight">
-                  Resources by skill
+                  ⚡ Skill gaps to address
                 </h2>
-                <p className="text-slate-300 text-sm">
-                  Targeted resources to make concrete progress in each area.
+                <p className="text-slate-400 text-sm mt-1">
+                  These are areas to strengthen before graduation.
                 </p>
-                <div className="space-y-3">
-                  {result.resources.map((group) => (
-                    <article
-                      key={group.skill}
-                      className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4"
-                    >
-                      <h3 className="text-sm font-semibold text-slate-50 mb-1">
-                        {group.skill}
-                      </h3>
-                      <ul className="space-y-1">
-                        {group.items.map((item) => (
-                          <li key={item} className="text-xs text-slate-200">
-                            • {item}
-                          </li>
-                        ))}
-                      </ul>
-                    </article>
-                  ))}
-                </div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2">
+                {result.resources.map((group) => (
+                  <article
+                    key={group.skill}
+                    className="rounded-2xl bg-slate-900/70 border border-slate-800 p-4"
+                  >
+                    <h3 className="text-sm font-semibold text-amber-400 mb-2">
+                      {group.skill}
+                    </h3>
+                    <ul className="space-y-1">
+                      {group.items.map((item) => (
+                        <li key={item} className="text-xs text-slate-300 flex items-start gap-2">
+                          <span className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+                          {item}
+                        </li>
+                      ))}
+                    </ul>
+                  </article>
+                ))}
               </div>
             </section>
-          </div>
-        )}
-      </div>
-    </div>
-    </>
-  )
-}
 
-export default App
+            {/* Chat */}
+            <section className="space-y-3">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight">
+                  💬 Ask Luminary
+                </h2>
+                <p className="text-slate-400 text-sm mt-1">
+                  Have questions about your plan? Ask anything.
+                </p>
+              </div>
+              <div className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4 space-y-3">
+                <div className="flex gap-3">
+                  <input
+                    className="flex-1 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/60"
+                    placeholder="e.g. What class should I take first? Can I finish in 2 semesters?"
+                  />
+                  <button
+                    className="inline-flex items-center gap-2 rounded-xl bg-amber-400 px-4 py-2 text-sm font-medium text-[#0c0c0e] hover:bg-amber-300"
+                  >
+                    Ask ✨
+                  </button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  Luminary has context of your full profile and DPR.
+                </p>
+              </div>
+            </section>
+
+          </div>
+ )}
+         </div>
+       </div>
+     </>
+   )
+ }
+
+ export default App
